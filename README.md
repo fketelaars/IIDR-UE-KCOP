@@ -13,14 +13,28 @@ In most scenarios you will need to perform a couple of configuration tasks:
 ### Setting the configuration properties
 Update the `KcopLiveAudit.properties` file with your favourite editor.
 
+An example of the LiveAudit properties can be found below
+![User Exit Properties](Documentation/images/KcopLiveAudit_properties.png)
+
 ### Update the CDC engine's classpath
 Assuming you have unzipped the file under the `<cdc_home>` directory, and the directory is called `IIDR-UE-KCOP-master`, add the following entries to the end of the classpath specified in the `<cdc_home>/conf/system.cp`: <br/>
 `:IIDR-UE-KCOP-master/lib/*:IIDR-UE-KCOP-master`
 
 Example classpath for CDC engine:
  ![Update Classpath](Documentation/images/Update_Classpath.png)
+ 
+ The `lib/*` classpath entry is needed to let CDC for Kafka find the jar file; the main directory holds the properties file that is read from within the KcopLiveAudit user exit.
 
-Once you have updated the classpath, restart the CDC instance(s) for the change to take effect.
+Once you have updated the classpath, restart the CDC instance(s) for the changes to take effect.
+
+## Configuring the subscription
+Now that the setup tasks have been done and the user exit is available to the CDC engine, you must create a subscription that targets the CDC for Kafka engine and map the tables.
+
+*Note:* Even though the user exit removes the need for the schema registry to be installed and configured, you will still need to reference a (dummy) schema registry host name and port name in the subscription's Kafka properties.
+
+Finally, configure the subscription-level user exit. The full name of the user exit is: `com.ibm.replication.cdc.userexit.kcop.KcopLiveAuditJson`. An optional parameter can be specified: the name of the configuration file that must be read for this subscription. If not unspecified, the user exit will read its properties from the `KcopLiveAuditJson.properties` file. Please note that the properties file must be found in the classpath as specified in the previous steps.
+
+
 
 ## Compilation
 If you wish to compile the user exit yourself, the easiest method is to use Ant ([https://ant.apache.org/bindownload.cgi](https://ant.apache.org/bindownload.cgi)). 
