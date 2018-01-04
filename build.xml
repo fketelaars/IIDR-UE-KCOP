@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+# Licensed Materials - Property of IBM
+# Copyright IBM Corp. 2015
+# US Government Users Restricted Rights - Use, duplication or
+# disclosure restricted by GSA ADP Schedule Contract with
+# IBM Corp.
+-->
+<project name="IIDR-UE-KCOP" basedir="." default="jar">
+
+	<loadproperties srcFile="ant.properties" />
+
+	<property name="cdc_engine_home" value="${CDC_ENGINE_HOME}" />
+	<property name="target_version" value="${TARGET_VERSION}" />
+	<property name="cdc_engine_lib.dir" value="${cdc_engine_home}/lib" />
+	<property name="src.dir" value="src" />
+	<property name="build.dir" value="classes" />
+	<property name="lib.dir" value="lib" />
+
+	<target name="clean">
+		<delete dir="${build.dir}" />
+	</target>
+
+	<target name="init">
+		<mkdir dir="${build.dir}" />
+		<mkdir dir="${lib.dir}" />
+	</target>
+
+
+	<path id="cp.cdc_engine">
+		<fileset dir="${cdc_engine_lib.dir}">
+			<include name="**/*.jar" />
+		</fileset>
+	</path>
+
+	<target name="compile" depends="init">
+		<javac srcdir="${src.dir}" destdir="${build.dir}" source="${target_version}" target="${target_version}" debug="true" includeantruntime="no">
+			<compilerarg value="-Xlint:-options" />
+			<classpath>
+				<path refid="cp.cdc_engine" />
+			</classpath>
+		</javac>
+	</target>
+
+	<target name="jar" depends="compile">
+		<jar destfile="${lib.dir}/iidr-ue-kcop.jar">
+			<fileset dir="${build.dir}" />
+			<fileset dir="${src.dir}" includes="**/*.java" />
+		</jar>
+		<delete dir="${build.dir}" />
+	</target>
+
+</project>
