@@ -36,9 +36,21 @@ Finally, configure the subscription-level user exit. The full name of the user e
 
 ![Subscription User Exit](Documentation/images/Configure_UE.png)
 
+## Replicating changes
+Below you will find an example of three change records: first a customer record is inserted, then updated and finally deleted. Before images are not included for the updated record. Also, we printed the Kafka message keys (this is the first JSON record on every line). If you did not specify a key, the key will be null.
+
+{"CUSTNO":"876355"}	{"AUD_CCID":"0","AUD_ENTTYP":"I","AUD_TIMSTAMP":"2018-01-05 03:55:47.373000000000","AUD_USER":"DB2INST1","CUSTNO":"876355","BRANCH":"35","NAME1":"SOMMERVILLE NATIONAL LEASING","NAME2":" ","ADDRESS1":"255 DALESFORD RD.","ADDRESS2":" ","CITY":"LANSING","STATE":"MI","STATUS":"A","CRLIMIT":"49979","BALANCE":"45000","REPNO":"251","AUD_APPLY_TIMESTAMP":"2018-01-05 03:55:49.083000"}
+{"CUSTNO":"876355"}	{"AUD_CCID":"555057","AUD_ENTTYP":"U","AUD_TIMSTAMP":"2018-01-05 04:03:30.000000000000","AUD_USER":"DB2INST1","CUSTNO":"876355","BRANCH":"35","NAME1":"SOMMERVILLE NATIONAL LEASING","NAME2":" ","ADDRESS1":"255 DALESFORD RD.","ADDRESS2":" ","CITY":"LANSING","STATE":"MI","STATUS":"A","CRLIMIT":"49980","BALANCE":"45000","REPNO":"251","AUD_APPLY_TIMESTAMP":"2018-01-05 04:03:33.221000"}
+{"CUSTNO":"876355"}	{"AUD_CCID":"555058","AUD_ENTTYP":"D","AUD_TIMSTAMP":"2018-01-05 04:03:36.000000000000","AUD_USER":"DB2INST1","CUSTNO":"876355","BRANCH":"35","NAME1":"SOMMERVILLE NATIONAL LEASING","NAME2":" ","ADDRESS1":"255 DALESFORD RD.","ADDRESS2":" ","CITY":"LANSING","STATE":"MI","STATUS":"A","CRLIMIT":"49980","BALANCE":"45000","REPNO":"251","AUD_APPLY_TIMESTAMP":"2018-01-05 04:03:38.936000"}
+```
+
+Example if no key was specified:
+```
+null	{"AUD_TIMSTAMP":"2018-01-05 05:17:51.004000000000","AUD_USER":"NOT SET   ","AUD_ENTTYP":"I","AUD_CCID":"0","PRODUCTID":"13644","DESCRIPTN":"cmqcNDdu","LOCATION":"VRDYAHgjwk","STATUS":"f","UNITPRICE":"2680732.16","UNITCOST":"1549338.86","QTYONHAND":"84873","QTYALLOC":"35004","QTYMINORD":"22259","AUD_APPLY_TIMESTAMP":"2018-01-05 05:17:52.705000"}
+```
+
 ## Compilation
 If you wish to compile the user exit yourself, the easiest method is to use Ant ([https://ant.apache.org/bindownload.cgi](https://ant.apache.org/bindownload.cgi)). 
-
 
 Once you have this installed:
 - Ensure that the ant executable is in the path
