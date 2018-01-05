@@ -23,14 +23,14 @@ Assuming you have unzipped the file under the `<cdc_home>` directory, and the di
 Example classpath for CDC engine:
  ![Update Classpath](Documentation/images/Update_Classpath.png)
  
- The `lib/*` classpath entry is needed to let CDC for Kafka find the jar file; the main directory holds the properties file that is read from within the KcopLiveAudit user exit.
+The `lib/*` classpath entry is needed to let CDC for Kafka find the jar file; the main directory holds the properties file that is read from within the KcopLiveAudit user exit.
 
 Once you have updated the classpath, restart the CDC instance(s) for the changes to take effect.
 
 ## Configuring the subscription
 Now that the setup tasks have been done and the user exit is available to the CDC engine, you must create a subscription that targets the CDC for Kafka engine and map the tables.
 
-*Note:* Even though the user exit removes the need for the schema registry to be installed and configured, you will still need to reference a (dummy) schema registry host name and port name in the subscription's Kafka properties.
+**Note:** Even though the user exit removes the need for the schema registry to be installed and configured, you will still need to reference a (dummy) schema registry host name and port name in the subscription's Kafka properties.
 
 Finally, configure the subscription-level user exit. The full name of the user exit is: `com.ibm.replication.cdc.userexit.kcop.KcopLiveAuditJson`. An optional parameter can be specified: the name of the configuration file that must be read for this subscription. If not unspecified, the user exit will read its properties from the `KcopLiveAuditJson.properties` file. Please note that the properties file must be found in the classpath as specified in the previous steps.
 

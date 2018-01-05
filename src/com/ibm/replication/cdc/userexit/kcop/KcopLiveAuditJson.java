@@ -21,6 +21,7 @@ import com.datamirror.ts.target.publication.userexit.UserExitException;
 import com.datamirror.ts.target.publication.userexit.kafka.KafkaCustomOperationProcessorIF;
 import com.datamirror.ts.target.publication.userexit.kafka.KafkaKcopOperationInIF;
 import com.datamirror.ts.target.publication.userexit.kafka.KafkaKcopReplicationCoordinatorIF;
+import com.datamirror.ts.util.trace.Trace;
 import com.google.gson.JsonObject;
 
 /*
@@ -28,8 +29,15 @@ import com.google.gson.JsonObject;
  */
 public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 
-	private Properties kcopConfigurationProperties;
+	private boolean includeBeforeImage;
+	private String beforeImagePrefix;
+	private String beforeImageSuffix;
 	private HashSet<JournalControlField> journalControlFields = new HashSet<JournalControlField>();
+	private String journalControlColumnPrefix;
+	private String journalControlColumnSuffix;
+	private boolean includeApplyTimestamp;
+	private String applyTimestampColumn;
+	private String kafkaTopicSuffix;
 
 	/*
 	 * Initialize the KCOP - set trigger events and load properties
@@ -43,13 +51,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		kafkaKcopCoordinator.subscribeEvent(ReplicationEventTypes.BEFORE_UPDATE_EVENT);
 
 		// Load the properties
-		kcopConfigurationProperties = loadKCOPConfigurationProperties(kafkaKcopCoordinator.getParameter(),
-				kafkaKcopCoordinator);
-
-		// Fill the set of journal control fields (reused many times)
-		for (String jcc : kcopConfigurationProperties.getProperty("journalControlColumns").split(",")) {
-			journalControlFields.add(JournalControlField.valueOf(jcc));
-		}
+		loadKCOPConfigurationProperties(kafkaKcopCoordinator.getParameter(), kafkaKcopCoordinator);
 
 	}
 
@@ -89,11 +91,11 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 
 		// In case of update, maybe add the before-image columns
 		if (kafkaUEOperationIn.getReplicationEventType() == ReplicationEventTypes.BEFORE_UPDATE_EVENT
-				&& Boolean.parseBoolean(kcopConfigurationProperties.getProperty("includeBeforeImage", "false")))
+				&& includeBeforeImage)
 			addBeforeFields(kafkaUEOperationIn.getKafkaAvroBeforeValueGenericRecord(), kafkaAuditJson);
 
 		// Add the apply timestamp if wanted
-		if (Boolean.parseBoolean(kcopConfigurationProperties.getProperty("includeApplyTimestamp", "true")))
+		if (includeApplyTimestamp)
 			addApplyTimestamp(kafkaAuditJson);
 
 		return kafkaAuditJson.toString();
@@ -105,7 +107,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	 */
 	private void addApplyTimestamp(JsonObject kafkaAuditJson) {
 		String timeStamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS000").format(new Date());
-		kafkaAuditJson.addProperty(kcopConfigurationProperties.getProperty("applyTimestampColumn"), timeStamp);
+		kafkaAuditJson.addProperty(applyTimestampColumn, timeStamp);
 	}
 
 	/*
@@ -129,8 +131,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		if (kafkaGenericAvroValueRecord != null) {
 			List<Field> fields = kafkaGenericAvroValueRecord.getSchema().getFields();
 			for (int i = 0; i < fields.size(); i++) {
-				String name = kcopConfigurationProperties.getProperty("beforeImagePrefix") + fields.get(i).name()
-						+ kcopConfigurationProperties.getProperty("beforeImageSuffix");
+				String name = beforeImagePrefix + fields.get(i).name() + beforeImageSuffix;
 				String value = kafkaGenericAvroValueRecord.get(i).toString();
 				kafkaAuditJson.addProperty(name, value);
 			}
@@ -142,8 +143,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	 */
 	public void addJournalControlFields(JournalHeaderIF journalHeader, JsonObject auditJson) {
 		for (JournalControlField jcf : journalControlFields) {
-			String jcfColumnName = kcopConfigurationProperties.getProperty("journalControlColumnPrefix") + jcf
-					+ kcopConfigurationProperties.getProperty("journalControlColumnSuffix");
+			String jcfColumnName = journalControlColumnPrefix + jcf + journalControlColumnSuffix;
 			if (jcf != JournalControlField.ENTTYP)
 				auditJson.addProperty(jcfColumnName, getJournalControlField(journalHeader, jcf));
 			else
@@ -199,8 +199,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		byte[] kafkaAvroValueByteArray = liveAuditRecord.getBytes();
 
 		insertKafkaAvroProducerRecord = new ProducerRecord<byte[], byte[]>(
-				kafkaUEOperationIn.getKafkaTopicName() + kcopConfigurationProperties.getProperty("kafkaTopicSuffix"),
-				kafkaUEOperationIn.getPartition(), null,
+				kafkaUEOperationIn.getKafkaTopicName() + kafkaTopicSuffix, kafkaUEOperationIn.getPartition(), null,
 				(kafkaAvroValueByteArray.length != 0) ? kafkaAvroValueByteArray : null);
 
 		return insertKafkaAvroProducerRecord;
@@ -227,7 +226,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 
 	// Load the properties from the specified properties file, or use the
 	// defaults
-	private Properties loadKCOPConfigurationProperties(String kcopUserExitParameter,
+	private void loadKCOPConfigurationProperties(String kcopUserExitParameter,
 			KafkaKcopReplicationCoordinatorIF kafkaKcopCoordinator) throws UserExitException {
 		InputStream configFileStream;
 		Properties kafkaKcopConfigProperties = new Properties();
@@ -253,14 +252,61 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 					"An IOException was encountered when attempting to load the properties file provided by the user.");
 			throw new UserExitException(e.getMessage());
 		}
-		return kafkaKcopConfigProperties;
+		// Show all properties in the trace
+		Trace.traceAlways(kafkaKcopConfigProperties.toString());
+
+		// Now populate the object variables
+		includeBeforeImage = getPropertyBoolean(kafkaKcopConfigProperties, "includeBeforeImage", false);
+		beforeImagePrefix = getProperty(kafkaKcopConfigProperties, "beforeImagePrefix", "B_");
+		beforeImageSuffix = getProperty(kafkaKcopConfigProperties, "beforeImageSuffix", "");
+		for (String jcc : getProperty(kafkaKcopConfigProperties, "journalControlColumns", "").split(",")) {
+			// Add the journal control column to lookup list
+			try {
+				journalControlFields.add(JournalControlField.valueOf(jcc));
+			} catch (Exception iae) {
+				kafkaKcopCoordinator
+						.logEvent("Error: Journal control column " + jcc + " is not valid. It will be ignored.");
+			}
+		}
+		journalControlColumnPrefix = getProperty(kafkaKcopConfigProperties, "journalControlColumnPrefix", "AUD_");
+		journalControlColumnSuffix = getProperty(kafkaKcopConfigProperties, "journalControlColumnSuffix", "");
+		includeApplyTimestamp = getPropertyBoolean(kafkaKcopConfigProperties, "includeApplyTimestamp", false);
+		applyTimestampColumn = getProperty(kafkaKcopConfigProperties, "applyTimestampColumn", "AUD_APPLY_TIMESTAMP");
+		kafkaTopicSuffix = getProperty(kafkaKcopConfigProperties, "kafkaTopicSuffix", "-audit-json");
+	}
+
+	/*
+	 * Get property string value
+	 */
+	private String getProperty(Properties properties, String property, String defaultValue) {
+		String value = defaultValue;
+		try {
+			value = properties.getProperty(property);
+		} catch (Exception e) {
+			Trace.traceAlways("Error while obtaining property " + property + ", using default value " + value);
+		}
+		return value;
+	}
+
+	/*
+	 * Get property boolean value
+	 */
+	private boolean getPropertyBoolean(Properties properties, String property, boolean defaultValue) {
+		boolean value = defaultValue;
+		try {
+			value = Boolean.parseBoolean(properties.getProperty(property));
+		} catch (Exception e) {
+			Trace.traceAlways("Error while obtaining or converting property " + property
+					+ " to boolean, using default value " + value);
+		}
+		return value;
 	}
 
 	/*
 	 * An enum that defines all journal control fields that can be used in this
 	 * user exit
 	 */
-	public enum JournalControlField {
+	private enum JournalControlField {
 		ENTTYP, TIMSTAMP, USER, JOBUSER, CCID, CNTRRN, CODE, JOBNO, JOURNAL, LIBRARY, MEMBER, OBJECT, PROGRAM, SEQNO, PARTITION, SYSTEM, UTC_TIMESTAMP,;
 
 	}
