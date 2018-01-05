@@ -55,24 +55,54 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 
 	}
 
+	/*
+	 * Method that creates one or more Kafka Producer records, called for every
+	 * change record
+	 */
 	@Override
 	public ArrayList<ProducerRecord<byte[], byte[]>> createProducerRecords(KafkaKcopOperationInIF kafkaUEOperationIn,
 			KafkaKcopReplicationCoordinatorIF kafkaKcopCoordinator) throws UserExitException {
 		ArrayList<ProducerRecord<byte[], byte[]>> producerRecordsToReturn = new ArrayList<ProducerRecord<byte[], byte[]>>();
 
-		String kafkaValueAuditRecord = createKafkaAuditJsonRecord(kafkaUEOperationIn);
+		String kafkaTopic = kafkaUEOperationIn.getKafkaTopicName() + kafkaTopicSuffix;
+		Integer topicPartition = kafkaUEOperationIn.getPartition();
+		String keyJsonRecordString = createKafkaKeyJsonRecord(kafkaUEOperationIn);
+		String valueJsonRecordString = createKafkaAuditJsonRecord(kafkaUEOperationIn);
 
-		ProducerRecord<byte[], byte[]> insertKafkaAvroProducerRecord;
+		ProducerRecord<byte[], byte[]> kafkaProducerRecord = createBinaryProducerRecord(kafkaTopic, topicPartition,
+				keyJsonRecordString, valueJsonRecordString);
 
-		insertKafkaAvroProducerRecord = createKafkaAuditBinaryProducerRecord(kafkaValueAuditRecord, kafkaUEOperationIn);
+		// If tracing is on, issue message in the log
+		if (Trace.isOn())
+			Trace.trace("Producer record will be sent to Kafka topic " + kafkaTopic + ", partition " + topicPartition);
 
-		producerRecordsToReturn.add(insertKafkaAvroProducerRecord);
+		// Add producer record to array list. In this KCOP, only 1 producer
+		// record is created for every incoming change record
+		producerRecordsToReturn.add(kafkaProducerRecord);
 
 		return producerRecordsToReturn;
 	}
 
 	/*
-	 * Create a JSON object with the full audit record
+	 * Create a JSON object with the key (this will be put in the key of the
+	 * Kafka message)
+	 */
+	private String createKafkaKeyJsonRecord(KafkaKcopOperationInIF kafkaUEOperationIn) {
+		JsonObject kafkaKeyJson = new JsonObject();
+
+		// Add the key fields
+		addFields(kafkaUEOperationIn.getKafkaAvroKeyGenericRecord(), kafkaKeyJson);
+
+		// In case tracing is on, put retrieved value in the traces
+		if (Trace.isOn())
+			Trace.trace("Key JSON: " + kafkaKeyJson.toString());
+
+		return kafkaKeyJson.toString();
+	}
+
+	/*
+	 * Create a JSON object with the full audit record (this will be put in the
+	 * value of the Kafka message)
 	 */
 	private String createKafkaAuditJsonRecord(KafkaKcopOperationInIF kafkaUEOperationIn) {
 		JsonObject kafkaAuditJson = new JsonObject();
@@ -98,8 +128,11 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		if (includeApplyTimestamp)
 			addApplyTimestamp(kafkaAuditJson);
 
-		return kafkaAuditJson.toString();
+		// In case tracing is on, put retrieved value in the traces
+		if (Trace.isOn())
+			Trace.trace("Value JSON: " + kafkaAuditJson.toString());
 
+		return kafkaAuditJson.toString();
 	}
 
 	/*
@@ -113,12 +146,12 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	/*
 	 * Append the fields to the JSON Object
 	 */
-	private void addFields(GenericRecord kafkaGenericAvroValueRecord, JsonObject kafkaAuditJson) {
-		if (kafkaGenericAvroValueRecord != null) {
-			List<Field> fields = kafkaGenericAvroValueRecord.getSchema().getFields();
+	private void addFields(GenericRecord kafkaGenericValueRecord, JsonObject kafkaAuditJson) {
+		if (kafkaGenericValueRecord != null) {
+			List<Field> fields = kafkaGenericValueRecord.getSchema().getFields();
 			for (int i = 0; i < fields.size(); i++) {
 				String name = fields.get(i).name();
-				String value = kafkaGenericAvroValueRecord.get(i).toString();
+				String value = kafkaGenericValueRecord.get(i).toString();
 				kafkaAuditJson.addProperty(name, value);
 			}
 		}
@@ -127,12 +160,12 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	/*
 	 * Append the before-image fields to the JSON Object in case of update
 	 */
-	private void addBeforeFields(GenericRecord kafkaGenericAvroValueRecord, JsonObject kafkaAuditJson) {
-		if (kafkaGenericAvroValueRecord != null) {
-			List<Field> fields = kafkaGenericAvroValueRecord.getSchema().getFields();
+	private void addBeforeFields(GenericRecord kafkaGenericValueRecord, JsonObject kafkaAuditJson) {
+		if (kafkaGenericValueRecord != null) {
+			List<Field> fields = kafkaGenericValueRecord.getSchema().getFields();
 			for (int i = 0; i < fields.size(); i++) {
 				String name = beforeImagePrefix + fields.get(i).name() + beforeImageSuffix;
-				String value = kafkaGenericAvroValueRecord.get(i).toString();
+				String value = kafkaGenericValueRecord.get(i).toString();
 				kafkaAuditJson.addProperty(name, value);
 			}
 		}
@@ -192,15 +225,19 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		}
 	}
 
-	private ProducerRecord<byte[], byte[]> createKafkaAuditBinaryProducerRecord(String liveAuditRecord,
-			KafkaKcopOperationInIF kafkaUEOperationIn) {
+	/*
+	 * Create a producer record with binary key and value components
+	 */
+	private ProducerRecord<byte[], byte[]> createBinaryProducerRecord(String kafkaTopic, Integer topicPartition,
+			String keyJsonString, String valueJsonString) {
 		ProducerRecord<byte[], byte[]> insertKafkaAvroProducerRecord;
 
-		byte[] kafkaAvroValueByteArray = liveAuditRecord.getBytes();
+		byte[] kafkaKeyByteArray = keyJsonString.getBytes();
+		byte[] kafkaValueByteArray = valueJsonString.getBytes();
 
-		insertKafkaAvroProducerRecord = new ProducerRecord<byte[], byte[]>(
-				kafkaUEOperationIn.getKafkaTopicName() + kafkaTopicSuffix, kafkaUEOperationIn.getPartition(), null,
-				(kafkaAvroValueByteArray.length != 0) ? kafkaAvroValueByteArray : null);
+		insertKafkaAvroProducerRecord = new ProducerRecord<byte[], byte[]>(kafkaTopic, topicPartition,
+				(kafkaKeyByteArray.length != 0) ? kafkaKeyByteArray : null,
+				(kafkaValueByteArray.length != 0) ? kafkaValueByteArray : null);
 
 		return insertKafkaAvroProducerRecord;
 
@@ -283,7 +320,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		try {
 			value = properties.getProperty(property);
 		} catch (Exception e) {
-			Trace.traceAlways("Error while obtaining property " + property + ", using default value " + value);
+			Trace.traceAlways("Error obtaining property " + property + ", using default value " + value);
 		}
 		return value;
 	}
@@ -296,8 +333,8 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		try {
 			value = Boolean.parseBoolean(properties.getProperty(property));
 		} catch (Exception e) {
-			Trace.traceAlways("Error while obtaining or converting property " + property
-					+ " to boolean, using default value " + value);
+			Trace.traceAlways(
+					"Error obtaining or converting property " + property + " to boolean, using default value " + value);
 		}
 		return value;
 	}
