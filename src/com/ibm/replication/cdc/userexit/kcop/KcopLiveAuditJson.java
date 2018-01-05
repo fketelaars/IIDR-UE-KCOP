@@ -66,8 +66,8 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 
 		String kafkaTopic = kafkaUEOperationIn.getKafkaTopicName() + kafkaTopicSuffix;
 		Integer topicPartition = kafkaUEOperationIn.getPartition();
-		String keyJsonRecordString = createKafkaKeyJsonRecord(kafkaUEOperationIn);
-		String valueJsonRecordString = createKafkaAuditJsonRecord(kafkaUEOperationIn);
+		JsonObject keyJsonRecordString = createKafkaKeyJsonRecord(kafkaUEOperationIn);
+		JsonObject valueJsonRecordString = createKafkaAuditJsonRecord(kafkaUEOperationIn);
 
 		ProducerRecord<byte[], byte[]> kafkaProducerRecord = createBinaryProducerRecord(kafkaTopic, topicPartition,
 				keyJsonRecordString, valueJsonRecordString);
@@ -87,7 +87,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	 * Create a JSON object with the key (this will be put in the key of the
 	 * Kafka message)
 	 */
-	private String createKafkaKeyJsonRecord(KafkaKcopOperationInIF kafkaUEOperationIn) {
+	private JsonObject createKafkaKeyJsonRecord(KafkaKcopOperationInIF kafkaUEOperationIn) {
 		JsonObject kafkaKeyJson = new JsonObject();
 
 		// Add the key fields
@@ -97,14 +97,14 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		if (Trace.isOn())
 			Trace.trace("Key JSON: " + kafkaKeyJson.toString());
 
-		return kafkaKeyJson.toString();
+		return kafkaKeyJson;
 	}
 
 	/*
 	 * Create a JSON object with the full audit record (this will be put in the
 	 * value of the Kafka message)
 	 */
-	private String createKafkaAuditJsonRecord(KafkaKcopOperationInIF kafkaUEOperationIn) {
+	private JsonObject createKafkaAuditJsonRecord(KafkaKcopOperationInIF kafkaUEOperationIn) {
 		JsonObject kafkaAuditJson = new JsonObject();
 
 		// Add the journal control fields
@@ -132,7 +132,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		if (Trace.isOn())
 			Trace.trace("Value JSON: " + kafkaAuditJson.toString());
 
-		return kafkaAuditJson.toString();
+		return kafkaAuditJson;
 	}
 
 	/*
@@ -229,17 +229,25 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	 * Create a producer record with binary key and value components
 	 */
 	private ProducerRecord<byte[], byte[]> createBinaryProducerRecord(String kafkaTopic, Integer topicPartition,
-			String keyJsonString, String valueJsonString) {
-		ProducerRecord<byte[], byte[]> insertKafkaAvroProducerRecord;
+			JsonObject keyJsonObject, JsonObject valueJsonObject) {
+		ProducerRecord<byte[], byte[]> kafkaProducerRecord;
 
-		byte[] kafkaKeyByteArray = keyJsonString.getBytes();
-		byte[] kafkaValueByteArray = valueJsonString.getBytes();
+		// Populate the binary representations of the JSON objects
+		byte[] kafkaKeyByteArray = null;
+		byte[] kafkaValueByteArray = null;
+		// Only fill binary key if key was provided
+		if (!keyJsonObject.entrySet().isEmpty())
+			kafkaKeyByteArray = keyJsonObject.toString().getBytes();
+		// Only fill binary value if value was provided (this should always be
+		// the case)
+		if (!valueJsonObject.entrySet().isEmpty())
+			kafkaValueByteArray = valueJsonObject.toString().getBytes();
 
-		insertKafkaAvroProducerRecord = new ProducerRecord<byte[], byte[]>(kafkaTopic, topicPartition,
-				(kafkaKeyByteArray.length != 0) ? kafkaKeyByteArray : null,
-				(kafkaValueByteArray.length != 0) ? kafkaValueByteArray : null);
+		// Create producer record
+		kafkaProducerRecord = new ProducerRecord<byte[], byte[]>(kafkaTopic, topicPartition, kafkaKeyByteArray,
+				kafkaValueByteArray);
 
-		return insertKafkaAvroProducerRecord;
+		return kafkaProducerRecord;
 
 	}
 
