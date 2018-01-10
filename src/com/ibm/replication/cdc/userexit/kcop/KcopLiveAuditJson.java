@@ -4,8 +4,11 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.nio.ByteBuffer;
+import java.sql.Blob;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -151,7 +154,17 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 			List<Field> fields = kafkaGenericValueRecord.getSchema().getFields();
 			for (int i = 0; i < fields.size(); i++) {
 				String name = fields.get(i).name();
-				String value = kafkaGenericValueRecord.get(i).toString();
+				Object valueObj = kafkaGenericValueRecord.get(i);
+				String value;
+				if (kafkaGenericValueRecord.get(i) == null)
+					value = null;
+				else {
+					// Encode BLOBs in Base64
+					if (valueObj instanceof ByteBuffer)
+						value = Base64.getEncoder().encodeToString(((ByteBuffer) valueObj).array());
+					else
+						value = kafkaGenericValueRecord.get(i).toString();
+				}
 				kafkaAuditJson.addProperty(name, value);
 			}
 		}
@@ -165,7 +178,17 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 			List<Field> fields = kafkaGenericValueRecord.getSchema().getFields();
 			for (int i = 0; i < fields.size(); i++) {
 				String name = beforeImagePrefix + fields.get(i).name() + beforeImageSuffix;
-				String value = kafkaGenericValueRecord.get(i).toString();
+				Object valueObj = kafkaGenericValueRecord.get(i);
+				String value;
+				if (kafkaGenericValueRecord.get(i) == null)
+					value = null;
+				else {
+					// Encode BLOBs in Base64
+					if (valueObj instanceof ByteBuffer)
+						value = Base64.getEncoder().encodeToString(((ByteBuffer) valueObj).array());
+					else
+						value = kafkaGenericValueRecord.get(i).toString();
+				}
 				kafkaAuditJson.addProperty(name, value);
 			}
 		}
@@ -298,7 +321,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 			throw new UserExitException(e.getMessage());
 		}
 		// Show all properties in the trace
-		Trace.traceAlways(kafkaKcopConfigProperties.toString());
+		Trace.traceAlways("Properties active for the KCOP: " + kafkaKcopConfigProperties.toString());
 
 		// Now populate the object variables
 		includeBeforeImage = getPropertyBoolean(kafkaKcopConfigProperties, "includeBeforeImage", false);
