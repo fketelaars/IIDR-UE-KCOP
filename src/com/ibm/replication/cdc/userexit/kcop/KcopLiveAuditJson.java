@@ -5,16 +5,18 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.ByteBuffer;
-import java.sql.Blob;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 
+import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
+import org.apache.avro.Schema.Type;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
 
@@ -41,6 +43,9 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	private boolean includeApplyTimestamp;
 	private String applyTimestampColumn;
 	private String kafkaTopicSuffix;
+
+	// Map of column types per schema
+	private HashMap<String, HashMap<String, Type>> schemaColumnTypes = new HashMap<String, HashMap<String, Type>>();
 
 	/*
 	 * Initialize the KCOP - set trigger events and load properties
@@ -69,21 +74,44 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 
 		String kafkaTopic = kafkaUEOperationIn.getKafkaTopicName() + kafkaTopicSuffix;
 		Integer topicPartition = kafkaUEOperationIn.getPartition();
-		JsonObject keyJsonRecordString = createKafkaKeyJsonRecord(kafkaUEOperationIn);
+		// Retrieve the values JSON record
 		JsonObject valueJsonRecordString = createKafkaAuditJsonRecord(kafkaUEOperationIn);
+		// Retrieve the key JSON record
+		JsonObject keyJsonRecordString = createKafkaKeyJsonRecord(kafkaUEOperationIn);
 
 		ProducerRecord<byte[], byte[]> kafkaProducerRecord = createBinaryProducerRecord(kafkaTopic, topicPartition,
 				keyJsonRecordString, valueJsonRecordString);
 
 		// If tracing is on, issue message in the log
-		if (Trace.isOn())
-			Trace.trace("Producer record will be sent to Kafka topic " + kafkaTopic + ", partition " + topicPartition);
+		Trace.trace("Producer record will be sent to Kafka topic " + kafkaTopic + ", partition " + topicPartition);
 
 		// Add producer record to array list. In this KCOP, only 1 producer
 		// record is created for every incoming change record
 		producerRecordsToReturn.add(kafkaProducerRecord);
 
 		return producerRecordsToReturn;
+	}
+
+	/*
+	 * Get the types of all columns (just once for every schema)
+	 */
+	private void getColumnTypes(GenericRecord kafkaGenericRecord) {
+		HashMap<String, Type> columnTypes = new HashMap<String, Type>();
+		// Get after image of record
+		String schemaName = kafkaGenericRecord.getSchema().getFullName();
+		// Obtain all the column types; if a column is nullable, it will be
+		// represented as a UNION of the type with NULL. In that case, get the
+		// first element of the UNION schema
+		for (Field field : kafkaGenericRecord.getSchema().getFields()) {
+			Type fieldType = field.schema().getType();
+			if (fieldType == Schema.Type.UNION) {
+				List<Schema> fieldSchemas = field.schema().getTypes();
+				fieldType = fieldSchemas.get(0).getType();
+			}
+			Trace.traceAlways("Schema " + schemaName + ", field " + field.name() + " has type " + fieldType);
+			columnTypes.put(field.name(), fieldType);
+		}
+		schemaColumnTypes.put(schemaName, columnTypes);
 	}
 
 	/*
@@ -94,11 +122,10 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		JsonObject kafkaKeyJson = new JsonObject();
 
 		// Add the key fields
-		addFields(kafkaUEOperationIn.getKafkaAvroKeyGenericRecord(), kafkaKeyJson);
+		addFields(kafkaUEOperationIn.getKafkaAvroKeyGenericRecord(), kafkaKeyJson, false);
 
 		// In case tracing is on, put retrieved value in the traces
-		if (Trace.isOn())
-			Trace.trace("Key JSON: " + kafkaKeyJson.toString());
+		Trace.trace("Key JSON: " + kafkaKeyJson.toString());
 
 		return kafkaKeyJson;
 	}
@@ -113,27 +140,26 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		// Add the journal control fields
 		addJournalControlFields(kafkaUEOperationIn.getUserExitJournalHeader(), kafkaAuditJson);
 
+		// Add the apply timestamp if wanted
+		if (includeApplyTimestamp)
+			addApplyTimestamp(kafkaAuditJson);
+
 		// Add the after image in case of insert and update, before image in
 		// case of delete
 		if (kafkaUEOperationIn.getReplicationEventType() == ReplicationEventTypes.BEFORE_INSERT_EVENT
 				|| kafkaUEOperationIn.getReplicationEventType() == ReplicationEventTypes.BEFORE_UPDATE_EVENT) {
-			addFields(kafkaUEOperationIn.getKafkaAvroValueGenericRecord(), kafkaAuditJson);
+			addFields(kafkaUEOperationIn.getKafkaAvroValueGenericRecord(), kafkaAuditJson, false);
 		} else {
-			addFields(kafkaUEOperationIn.getKafkaAvroBeforeValueGenericRecord(), kafkaAuditJson);
+			addFields(kafkaUEOperationIn.getKafkaAvroBeforeValueGenericRecord(), kafkaAuditJson, false);
 		}
 
 		// In case of update, maybe add the before-image columns
 		if (kafkaUEOperationIn.getReplicationEventType() == ReplicationEventTypes.BEFORE_UPDATE_EVENT
 				&& includeBeforeImage)
-			addBeforeFields(kafkaUEOperationIn.getKafkaAvroBeforeValueGenericRecord(), kafkaAuditJson);
-
-		// Add the apply timestamp if wanted
-		if (includeApplyTimestamp)
-			addApplyTimestamp(kafkaAuditJson);
+			addFields(kafkaUEOperationIn.getKafkaAvroBeforeValueGenericRecord(), kafkaAuditJson, true);
 
 		// In case tracing is on, put retrieved value in the traces
-		if (Trace.isOn())
-			Trace.trace("Value JSON: " + kafkaAuditJson.toString());
+		Trace.trace("Value JSON: " + kafkaAuditJson.toString());
 
 		return kafkaAuditJson;
 	}
@@ -149,45 +175,33 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	/*
 	 * Append the fields to the JSON Object
 	 */
-	private void addFields(GenericRecord kafkaGenericValueRecord, JsonObject kafkaAuditJson) {
-		if (kafkaGenericValueRecord != null) {
-			List<Field> fields = kafkaGenericValueRecord.getSchema().getFields();
-			for (int i = 0; i < fields.size(); i++) {
-				String name = fields.get(i).name();
-				Object valueObj = kafkaGenericValueRecord.get(i);
-				String value;
-				if (kafkaGenericValueRecord.get(i) == null)
-					value = null;
-				else {
-					// Encode BLOBs in Base64
-					if (valueObj instanceof ByteBuffer)
-						value = Base64.getEncoder().encodeToString(((ByteBuffer) valueObj).array());
-					else
-						value = kafkaGenericValueRecord.get(i).toString();
-				}
-				kafkaAuditJson.addProperty(name, value);
+	private void addFields(GenericRecord kafkaGenericRecord, JsonObject kafkaAuditJson, boolean beforeImage) {
+		if (kafkaGenericRecord != null) {
+			// Get the column types for this change record
+			HashMap<String, Type> columnTypes = schemaColumnTypes.get(kafkaGenericRecord.getSchema().getFullName());
+			// If column types were not populated yet, do so
+			if (columnTypes == null) {
+				getColumnTypes(kafkaGenericRecord);
+				columnTypes = schemaColumnTypes.get(kafkaGenericRecord.getSchema().getFullName());
 			}
-		}
-	}
-
-	/*
-	 * Append the before-image fields to the JSON Object in case of update
-	 */
-	private void addBeforeFields(GenericRecord kafkaGenericValueRecord, JsonObject kafkaAuditJson) {
-		if (kafkaGenericValueRecord != null) {
-			List<Field> fields = kafkaGenericValueRecord.getSchema().getFields();
+			List<Field> fields = kafkaGenericRecord.getSchema().getFields();
 			for (int i = 0; i < fields.size(); i++) {
-				String name = beforeImagePrefix + fields.get(i).name() + beforeImageSuffix;
-				Object valueObj = kafkaGenericValueRecord.get(i);
+				Field field = fields.get(i);
+				String name;
+				if (!beforeImage)
+					name = field.name();
+				else
+					name = beforeImagePrefix + field.name() + beforeImageSuffix;
+				Object valueObj = kafkaGenericRecord.get(i);
 				String value;
-				if (kafkaGenericValueRecord.get(i) == null)
+				if (kafkaGenericRecord.get(i) == null)
 					value = null;
 				else {
 					// Encode BLOBs in Base64
-					if (valueObj instanceof ByteBuffer)
+					if (columnTypes.get(name) == Schema.Type.BYTES)
 						value = Base64.getEncoder().encodeToString(((ByteBuffer) valueObj).array());
 					else
-						value = kafkaGenericValueRecord.get(i).toString();
+						value = kafkaGenericRecord.get(i).toString();
 				}
 				kafkaAuditJson.addProperty(name, value);
 			}
@@ -341,6 +355,15 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		includeApplyTimestamp = getPropertyBoolean(kafkaKcopConfigProperties, "includeApplyTimestamp", false);
 		applyTimestampColumn = getProperty(kafkaKcopConfigProperties, "applyTimestampColumn", "AUD_APPLY_TIMESTAMP");
 		kafkaTopicSuffix = getProperty(kafkaKcopConfigProperties, "kafkaTopicSuffix", "-audit-json");
+
+		// Check that the before image prefix or suffix is specified if before
+		// images must be included
+		if (includeBeforeImage && beforeImagePrefix.isEmpty() && beforeImageSuffix.isEmpty()) {
+			kafkaKcopCoordinator.logEvent(
+					"Before image prefix or suffix must be specified when before images are included in the audit record.");
+			throw new UserExitException(
+					"Before image prefix or suffix must be specified when before images are included in the audit record.");
+		}
 	}
 
 	/*
