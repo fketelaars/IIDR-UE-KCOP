@@ -43,6 +43,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	private boolean includeApplyTimestamp;
 	private String applyTimestampColumn;
 	private String kafkaTopicSuffix;
+	private boolean debug;
 
 	// Map of column types per schema
 	private HashMap<String, HashMap<String, Type>> schemaColumnTypes = new HashMap<String, HashMap<String, Type>>();
@@ -125,7 +126,8 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		addFields(kafkaUEOperationIn.getKafkaAvroKeyGenericRecord(), kafkaKeyJson, false);
 
 		// In case tracing is on, put retrieved value in the traces
-		Trace.trace("Key JSON: " + kafkaKeyJson.toString());
+		if (debug)
+			Trace.traceAlways("Key JSON: " + kafkaKeyJson.toString());
 
 		return kafkaKeyJson;
 	}
@@ -159,7 +161,8 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 			addFields(kafkaUEOperationIn.getKafkaAvroBeforeValueGenericRecord(), kafkaAuditJson, true);
 
 		// In case tracing is on, put retrieved value in the traces
-		Trace.trace("Value JSON: " + kafkaAuditJson.toString());
+		if (debug)
+			Trace.traceAlways("Value JSON: " + kafkaAuditJson.toString());
 
 		return kafkaAuditJson;
 	}
@@ -355,6 +358,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 		includeApplyTimestamp = getPropertyBoolean(kafkaKcopConfigProperties, "includeApplyTimestamp", false);
 		applyTimestampColumn = getProperty(kafkaKcopConfigProperties, "applyTimestampColumn", "AUD_APPLY_TIMESTAMP");
 		kafkaTopicSuffix = getProperty(kafkaKcopConfigProperties, "kafkaTopicSuffix", "-audit-json");
+		debug = getPropertyBoolean(kafkaKcopConfigProperties, "debug", false);
 
 		// Check that the before image prefix or suffix is specified if before
 		// images must be included
