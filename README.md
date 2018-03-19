@@ -11,7 +11,7 @@ In most scenarios you will need to perform a couple of configuration tasks:
 - Add the user exit and its configuration file to the classpath of the CDC *target* engine
 
 ### Setting the configuration properties
-Update the `KcopLiveAudit.properties` file with your favourite editor.
+Update the `KcopLiveAuditJson.properties` file with your favourite editor.
 
 An example of the LiveAudit properties can be found below
 ![User Exit Properties](Documentation/images/KcopLiveAudit_properties.png)
