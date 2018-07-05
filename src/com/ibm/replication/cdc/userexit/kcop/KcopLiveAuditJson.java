@@ -5,10 +5,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.ByteBuffer;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -28,6 +26,7 @@ import com.datamirror.ts.target.publication.userexit.kafka.KafkaKcopOperationInI
 import com.datamirror.ts.target.publication.userexit.kafka.KafkaKcopReplicationCoordinatorIF;
 import com.datamirror.ts.util.trace.Trace;
 import com.google.gson.JsonObject;
+import com.ibm.replication.cdc.userexit.kcop.util.NanoClock;
 
 /*
  * 
@@ -45,6 +44,8 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	private String kafkaTopicSuffix;
 	private boolean debug;
 
+	private NanoClock applyTimestamp;
+
 	// Map of column types per schema
 	private HashMap<String, HashMap<String, Type>> schemaColumnTypes = new HashMap<String, HashMap<String, Type>>();
 
@@ -61,6 +62,9 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 
 		// Load the properties
 		loadKCOPConfigurationProperties(kafkaKcopCoordinator.getParameter(), kafkaKcopCoordinator);
+
+		// Set the baseline for applyTimestamp
+		applyTimestamp = new NanoClock();
 
 	}
 
@@ -171,8 +175,7 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 	 * Append the apply timestamp
 	 */
 	private void addApplyTimestamp(JsonObject kafkaAuditJson) {
-		String timeStamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS000").format(new Date());
-		kafkaAuditJson.addProperty(applyTimestampColumn, timeStamp);
+		kafkaAuditJson.addProperty(applyTimestampColumn, applyTimestamp.instant().toString());
 	}
 
 	/*
