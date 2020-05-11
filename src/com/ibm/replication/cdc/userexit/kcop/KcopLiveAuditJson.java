@@ -204,8 +204,12 @@ public class KcopLiveAuditJson implements KafkaCustomOperationProcessorIF {
 					value = null;
 				else {
 					// Encode BLOBs in Base64
-					if (columnTypes.get(name) == Schema.Type.BYTES)
-						value = Base64.getEncoder().encodeToString(((ByteBuffer) valueObj).array());
+					if (columnTypes.get(name) == Schema.Type.BYTES) {
+						ByteBuffer bb = (ByteBuffer) valueObj;
+						byte[] b = new byte[bb.remaining()];
+						bb.get(b);
+						value = Base64.getEncoder().encodeToString(b);
+					}
 					else
 						value = kafkaGenericRecord.get(i).toString();
 				}
