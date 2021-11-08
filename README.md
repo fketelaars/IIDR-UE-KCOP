@@ -1,5 +1,8 @@
 # IBM InfoSphere Data Replication User Exit - Kafka Custom Operator
 
+## Please note
+The custom operators documented in this GitHub have been superseded by KCOPs provided by the IBM Data Replication product: https://www.ibm.com/docs/en/idr/11.4.0?topic=kafka-enabling-integrated-custom-operation-processors-kcop. You can still use this GitHub if you have specific needs or as an example if you want to develop your own custom operators. Good luck!
+
 ## Installation
 The GitHub repository contains the source but also the user exit in its compiled form, enclosed in a jar file. If you wish, you can build the jar file yourself using Ant, or to manually compile the user exit. If you wish to do so, please refer to the [Compilation](#compilation) section.
 
